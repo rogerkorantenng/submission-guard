@@ -1,0 +1,8 @@
+name: submission-guard
+version: 1.0.0
+api: '0.11'
+developers:
+  - Flat_Lawfulness8889
+webRoot: ./webroot
+redis:
+  enabled: true
