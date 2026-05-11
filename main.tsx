@@ -2,12 +2,17 @@ import { Devvit, useWebView } from '@devvit/public-api';
 import type { RpcRequest, RpcReply } from '@shared/rpc';
 import { dispatch } from './src/server/dispatcher';
 import { onPostSubmit } from './src/server/triggers/onPostSubmit';
+import { handleModAction } from './src/server/triggers/onModAction';
 
 /**
  * Submission Guard is a port of nosleepautobot to Reddit's Devvit Web
  * platform. It enforces title-tag whitelist, NSFW-in-title, paragraph
  * length, code-block, and per-author rate-limit rules on every new post,
  * and auto-flairs series posts. All thresholds are configurable per-sub.
+ *
+ * The port layers stateful features the original (and AutoMod) lack:
+ * account-age-aware rate tiers, cumulative violation escalation, and
+ * cross-author raid detection.
  */
 Devvit.configure({
   redditAPI: true,
@@ -18,6 +23,18 @@ Devvit.addTrigger({
   event: 'PostSubmit',
   onEvent: (event, context) =>
     onPostSubmit(event as unknown as Parameters<typeof onPostSubmit>[0], context),
+});
+
+/**
+ * ModAction trigger -- enables retroactive series detection. When a mod
+ * manually applies the configured series flair to a post that was already
+ * accepted (because it didn't have a series title tag), the handler fires
+ * the series reminder DM + sticky comment.
+ */
+Devvit.addTrigger({
+  event: 'ModAction',
+  onEvent: (event, context) =>
+    handleModAction(event as unknown as Parameters<typeof handleModAction>[0], context),
 });
 
 Devvit.addMenuItem({

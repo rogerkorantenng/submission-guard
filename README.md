@@ -1,44 +1,50 @@
 # Submission Guard
 
-Devvit Web port of [`nosleepautobot`](https://github.com/sofaworks/nosleepautobot) -- generalized so any long-form content subreddit can install it and tune the rules per-sub.
+Stateful submission moderation for any subreddit. Devvit Web port of [`nosleepautobot`](https://github.com/sofaworks/nosleepautobot), with the things AutoModerator still can't do.
 
-## What it does
+## What it does that AutoMod can't
 
-Runs on every new post submission and enforces moderator-configurable rules:
+**AutoModerator is great at pattern matching.** It can't remember anything. Submission Guard adds the stateful tier on top:
 
-- **Title-tag whitelist** -- only allow specific bracketed tags (e.g. `[Part 2]`, `[Volume 3]`, `[Update]`, `[Final]`). Custom regex patterns supported per-sub.
-- **NSFW in title** -- detect free-floating "NSFW" tokens; ask authors to use Reddit's native NSFW toggle instead.
-- **Long paragraph cap** -- per-paragraph word limit (default 350).
-- **Code-block detection** -- 4-space indent or tab-prefixed paragraphs trigger Reddit's code formatting; flagged.
-- **Per-author rate limit** -- one post per N seconds (default 24h).
-- **Series auto-flair** -- detect `[Part N]` / `[Update]` / `[Volume N]` style tags, apply the configured series flair, post a sticky locked UpdateMeBot reminder, DM the author.
+- **Account-age-aware rate limits.** Brand-new accounts (default <7 days) get 2x the configured cooldown; tenured accounts (>30 days) get 0.5x. AutoMod has no access to `account_age`.
+- **Cumulative escalation.** Per-author violation counter in a rolling window. 1st violation = warn only (post stays up). 2nd = standard removal. 3rd+ = removal + modmail to the mod team. AutoMod is stateless.
+- **Raid detection.** N distinct authors trip the same rule in M seconds -> modmail alert to mods. Idempotent so they don't get spammed.
+- **One-click reapproval** from the mod panel's enforcement feed.
+- **Rule preview** — paste a hypothetical title + body, see what would fire against your current settings. AutoMod requires wiki edits and real test posts.
+- **Live stats dashboard** — 24h/7d/30d windows, by-rule histogram, top 5 authors.
 
-Removals come with a sticky distinguished comment containing a pre-filled modmail link the author clicks to request reapproval (or be told to wait, for rate-limit and NSFW-title removals).
+## Ported rules (from nosleepautobot)
 
-A small mod panel (custom post) shows the most recent enforcement actions and the per-sub settings drawer.
+All six rules from the original are ported with full behavioral parity, verified by porting the original Python test suite to TypeScript:
 
-## Per-sub configuration
+- **Title-tag whitelist** — `[Part 2]`, `[Volume 3]`, `[Update]`, `[Final]` etc. Custom regex slot for per-sub additions.
+- **NSFW-in-title detection** — free-floating "NSFW" tokens flagged; authors directed to Reddit's native NSFW toggle.
+- **Per-paragraph word cap** — default 350 words. Configurable per-sub.
+- **Code-block detection** — 4-space indent or tab-prefixed paragraphs.
+- **Per-author 24h rate limit** — now with account-age tiers.
+- **Series auto-flair** — detect `[Part N]`, apply the configured flair, post a sticky locked UpdateMeBot reminder, DM the author.
 
-Every rule has an enable/disable toggle. Tunable knobs:
+All rules are individually toggleable per-sub.
 
-- Custom title-tag regex patterns
-- Max words per paragraph
-- Rate-limit window (seconds)
-- Series flair CSS class
-- Series reminder DM/comment on/off
+## How to use
 
-All persisted in Devvit Redis, scoped per-installing-subreddit.
-
-## Origin & credit
-
-Submission Guard is a port of [`sofaworks/nosleepautobot`](https://github.com/sofaworks/nosleepautobot) (Apache-2.0). Original maintainers: William Lee (u/SofaAssassin) and the r/nosleep mod team. The port preserves the original's rule semantics including subtle edge cases captured in the original test suite.
+1. Install from the Reddit App Directory.
+2. **Mod Tools -> Submission Guard - Open mod panel** creates one persistent post in the sub.
+3. Open the post (mods only — non-mods see a splash).
+4. Configure rules + thresholds via the **Settings** drawer.
+5. Use **Preview rules** to dry-run a hypothetical post against your current settings before going live.
+6. Watch enforcement happen in the live feed; **Reapprove** any false-positive with one click.
 
 ## Local development
 
 ```bash
 npm install
-npm test                  # 44 unit tests
+npm test                  # 63 unit tests
 npm run typecheck         # client + server
 npm run build:client      # vite build into webroot/
 devvit playtest <sub>     # upload + watch mode
 ```
+
+## Origin & credit
+
+Submission Guard is an Apache-2.0 port of [`sofaworks/nosleepautobot`](https://github.com/sofaworks/nosleepautobot). Original maintainers: William Lee (u/SofaAssassin) and the r/nosleep mod team. The port preserves the original's rule semantics; the differentiator layer (account-age tiers, escalation, raid detection, rule preview) is new in this port.

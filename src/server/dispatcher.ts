@@ -6,6 +6,7 @@ import { settingsGetHandler, settingsSaveHandler } from './api/settings';
 import { statsGetHandler } from './api/stats';
 import { previewHandler } from './api/preview';
 import { reapproveHandler } from './api/reapprove';
+import { presetsListHandler, presetApplyHandler } from './api/presets';
 
 /**
  * Pure dispatch function: given an RpcRequest envelope and a Devvit
@@ -28,6 +29,10 @@ export async function dispatch(context: Context, msg: RpcRequest): Promise<unkno
       return previewHandler(context, msg.payload);
     case 'reapprove':
       return reapproveHandler(context, msg.payload);
+    case 'presets:list':
+      return presetsListHandler(context);
+    case 'presets:apply':
+      return presetApplyHandler(context, msg.payload);
     default:
       return { error: `unknown type: ${msg.type}` };
   }

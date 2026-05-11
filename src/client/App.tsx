@@ -282,18 +282,50 @@ function PreviewDrawer({ onClose }: { onClose: () => void }) {
   );
 }
 
+interface PresetSummary {
+  id: string;
+  label: string;
+  description: string;
+}
+
 function SettingsDrawer({
   settings,
   onSave,
+  onPresetApplied,
   onClose,
 }: {
   settings: GuardSettings;
   onSave: (next: GuardSettings) => Promise<void>;
+  onPresetApplied: () => Promise<void>;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<GuardSettings>(settings);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [presets, setPresets] = useState<PresetSummary[]>([]);
+  const [applyingPreset, setApplyingPreset] = useState<string | null>(null);
+
+  useEffect(() => {
+    rpc<undefined, { presets: PresetSummary[] }>('presets:list')
+      .then((r) => setPresets(r.presets))
+      .catch(() => undefined);
+  }, []);
+
+  const applyPreset = async (id: string) => {
+    setApplyingPreset(id);
+    setErr(null);
+    try {
+      await rpc<{ id: string }, { ok: true }>('presets:apply', { id });
+      // Re-fetch settings so the draft reflects the preset.
+      const next = await rpc<undefined, GuardSettings>('settings:get');
+      setDraft(next);
+      await onPresetApplied();
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setApplyingPreset(null);
+    }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -347,7 +379,36 @@ function SettingsDrawer({
         </header>
 
         <div className="space-y-5 p-5">
-          <section>
+          {presets.length > 0 && (
+            <section>
+              <h3 className="font-display text-base text-ink-700">Presets</h3>
+              <p className="mt-1 text-xs text-ink-400">
+                Apply a tuned preset for a known long-form sub. Overwrites your current settings;
+                you can still edit afterward.
+              </p>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {presets.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    disabled={applyingPreset !== null}
+                    onClick={() => void applyPreset(p.id)}
+                    className="rounded-lg border border-paper-200 bg-white p-3 text-left text-xs shadow-page transition hover:border-amber-400 disabled:opacity-50"
+                  >
+                    <div className="font-display text-sm text-ink-700">{p.label}</div>
+                    <div className="mt-1 text-[11px] leading-snug text-ink-400">{p.description}</div>
+                    {applyingPreset === p.id && (
+                      <div className="mt-1 text-[10px] uppercase tracking-wider text-amber-600">
+                        Applying...
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="border-t border-paper-200 pt-4">
             <h3 className="font-display text-base text-ink-700">Enforce</h3>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <Toggle k="enableTitleTags" label="Title tag whitelist" />
@@ -579,6 +640,11 @@ export function App() {
           onSave={async (next) => {
             const saved = await rpc<GuardSettings, GuardSettings>('settings:save', next);
             setSettings(saved);
+            setRefreshNonce((n) => n + 1);
+          }}
+          onPresetApplied={async () => {
+            const next = await rpc<undefined, GuardSettings>('settings:get');
+            setSettings(next);
             setRefreshNonce((n) => n + 1);
           }}
           onClose={() => setSettingsOpen(false)}
