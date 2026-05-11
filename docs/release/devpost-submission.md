@@ -18,7 +18,7 @@ We took that feedback and built up. Submission Guard ports every rule from the o
 
 | Feature | Why AutoMod can't |
 |---|---|
-| **Account-age-aware rate limits** | AutoMod has no access to `account_age_days`. We pull it via `getUserById` and scale the rate-limit window per tier (new accounts get a longer cooldown, tenured accounts get a shorter one). |
+| **Account-age-aware rate limits** | AutoMod can check account age but cannot maintain per-author post history to enforce rate limits. We combine `getUserById` account age with Redis-backed post tracking to scale cooldown windows dynamically (new accounts get 2x, tenured get 0.5x). |
 | **Cumulative violation escalation** | AutoMod is stateless. We keep a per-author rolling-window violation counter in Redis. 1st violation = warn (post stays up), 2nd = remove, 3rd = remove + modmail. |
 | **Raid detection** | AutoMod fires per-event, in isolation. We aggregate across authors: N distinct authors hitting the same rule within M seconds = modmail alert. |
 | **Rule preview** | AutoMod requires editing the wiki and submitting test posts to validate rule changes. We dry-run the evaluator against current settings -- paste a hypothetical title + body, see what would fire. |

@@ -42,7 +42,7 @@ Devvit Web port of `nosleepautobot`, plus the stateful tier AutoModerator still 
 
 | Feature | Why AutoMod can't |
 |---------|-------------------|
-| **Account-age-aware rate limits** | AutoMod has no access to `account_age_days`. We pull it via `getUserById` and scale the rate-limit window per tier. |
+| **Account-age-aware rate limits** | AutoMod can check account age but cannot maintain per-author post history to enforce rate limits. We combine account age data with Redis-backed post tracking to scale cooldown windows dynamically. |
 | **Cumulative violation escalation** | AutoMod is stateless. We keep a per-author rolling-window violation counter in Redis. 1st = warn, 2nd = remove, 3rd = remove + modmail. |
 | **Raid detection** | AutoMod fires per-event, in isolation. We aggregate across authors: N distinct authors hitting the same rule within M seconds = modmail alert. |
 | **Rule preview** | AutoMod requires editing the wiki and submitting test posts. We dry-run the evaluator against current settings. |
