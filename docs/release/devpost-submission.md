@@ -1,86 +1,142 @@
 # Submission Guard
 
-Devvit Web port of `nosleepautobot`, plus the stateful tier AutoModerator still can't do. Submitted to Reddit's Mod Tools and Migrated Apps Hackathon (May 2026), Best Ported Data API App category.
+**The 9-year-old submission rules of r/nosleep, ported to Devvit—then stretched to do what AutoMod can't.**
 
-## Tagline
+---
 
-The 9-year-old submission rules of r/nosleep, ported to Devvit -- and stretched to do what AutoMod can't.
+## What It Does
+
+Submission Guard is a Devvit Web port of `nosleepautobot`, the moderation bot that's kept r/nosleep (18M subscribers) running since 2017. It enforces submission rules no team of humans can keep up with at scale: title-tag formatting, 24h post rate limits, paragraph length caps, code-block bans, and series auto-flair.
+
+But we didn't just port it—we added the **stateful moderation tier** AutoModerator fundamentally can't provide.
+
+### The 8 Things AutoMod Can't Do
+
+| Feature | Why AutoMod Can't | What We Do |
+|---------|-------------------|------------|
+| **Per-author rate limits** | No memory between events | Track post history in Redis, enforce 24h cooldowns |
+| **Account-age scaling** | Can check age but can't combine with rate limits | New accounts get 2× cooldown, tenured get 0.5× |
+| **Cumulative escalation** | Stateless, no counters | Rolling-window violation counter: 1st = warn, 2nd = remove, 3rd = modmail |
+| **Raid detection** | Per-event only, no aggregation | Cross-author tracking: N users hit same rule in M seconds = alert |
+| **Batch reapproval** | No UI | Checkbox selection + one-click bulk approve |
+| **AI insights** | No external API access | Claude 3.5 Sonnet analyzes each removal, provides 2-3 sentence context |
+| **A/B testing** | No what-if analysis | Replay past enforcement data against modified settings |
+| **Live stats** | Raw modlog only | 24h/7d/30d metrics, by-rule histograms, top violators |
+
+---
 
 ## Inspiration
 
-`nosleepautobot` has been load-bearing infrastructure on r/nosleep (18M subscribers) since 2017. It enforces title-tag formatting, the 24h post rate limit, paragraph length, code-block bans, and series auto-flair -- work no team of humans can keep up with at that scale.
+When we asked the original maintainer for permission to port, the response reshaped the project:
 
-When we DM'd the original maintainer for permission to port, the response was honest and useful: **AutoModerator has eaten most of this surface.** Title regex, code blocks, body keyword bans -- AutoMod does it all. So the value of a port isn't in re-implementing what AutoMod already covers. The value is in the *stateful* moderation tier above it.
+> "AutoModerator has eaten most of this surface... **One of the only things that Automoderator still can't do is the 24-hour post-per-user enforcement**"  
+> — William Lee (leikahing), original maintainer
 
-We took that feedback and built up. Submission Guard ports every rule from the original, then layers on the things you cannot express in AutoMod's wiki: account-age-aware rate limits, cumulative violation escalation, cross-author raid detection, live stats, rule preview, and one-click reapproval.
+That feedback made it clear: the value isn't in re-implementing what AutoMod covers. The value is in the **stateful tier above it**—the things AutoMod's architecture makes structurally impossible.
 
-## What AutoModerator can't do that Submission Guard does
+We ported every rule with full behavioral parity (verified by porting the original's test suite), then layered on:
+- Account-age-aware rate limits
+- Cumulative violation escalation  
+- Cross-author raid detection
+- AI-powered moderation insights
+- A/B test simulator for rule changes
+- Batch reapproval workflow
+- Live analytics dashboard
 
-| Feature | Why AutoMod can't |
-|---|---|
-| **Account-age-aware rate limits** | AutoMod can check account age but cannot maintain per-author post history to enforce rate limits. We combine `getUserById` account age with Redis-backed post tracking to scale cooldown windows dynamically (new accounts get 2x, tenured get 0.5x). |
-| **Cumulative violation escalation** | AutoMod is stateless. We keep a per-author rolling-window violation counter in Redis. 1st violation = warn (post stays up), 2nd = remove, 3rd = remove + modmail. |
-| **Raid detection** | AutoMod fires per-event, in isolation. We aggregate across authors: N distinct authors hitting the same rule within M seconds = modmail alert. |
-| **Rule preview** | AutoMod requires editing the wiki and submitting test posts to validate rule changes. We dry-run the evaluator against current settings -- paste a hypothetical title + body, see what would fire. |
-| **Batch reapproval** | AutoMod has no UI to undo its own removals; mods navigate to the post. We surface every removal with checkboxes for bulk reapproval. |
-| **AI-powered insights** | AutoMod has no external API access. We integrate Claude 3.5 Sonnet to analyze enforcement events and provide 2-3 sentence context summaries for better mod decisions. |
-| **A/B test simulator** | AutoMod provides no what-if analysis. We replay past enforcement data against modified settings to show what would change before deploying rule tweaks. |
-| **Live stats** | AutoMod's modlog is raw events. We aggregate (24h/7d/30d, by rule, top authors). |
+---
 
-## Ported rules (parity with the original)
+## How We Built It
 
-All six rules from `nosleepautobot` are ported with full behavioral parity, verified by porting the original Python test suite to TypeScript Vitest:
+**Stack:**
+- Devvit Web 0.12.22 (PostSubmit triggers, custom post mod panel, Redis)
+- React 18 + Vite + Tailwind CSS (professional GitHub-inspired dark theme)
+- TypeScript strict mode + Vitest
+- Anthropic Claude API (optional, user-configured)
 
-- Title-tag whitelist (with the original's exact regex behavior, including edge cases like rejecting "update3" without space and "Part 1 of 2")
-- NSFW-in-title detection (token-based, preserves the underscore-glued non-match the original allows)
-- Long-paragraph cap (same paragraph-split regex; \w+ word counting)
-- Code-block detection (4-space indent or tab; whitespace-only paragraphs ignored)
-- Per-author rate limit (same Activity model and dedupe-by-post-id semantics)
-- Series detection -> auto-flair -> sticky locked UpdateMeBot reminder -> author DM
+**Architecture:**
 
-44 of our 63 unit tests are direct ports of the original's test cases. The other 19 cover the new features.
+1. **PostSubmit trigger** fires on every new submission
+2. **Evaluator** runs enabled rules in order (first violation wins)
+3. **Escalation check**: per-author violation counter decides warn vs. remove vs. alert
+4. **Reddit action**: Remove + distinguished comment, or warn-only comment
+5. **State updates**: 
+   - Append to per-author rolling-window violation set
+   - Append to per-rule cross-author hit set
+6. **Raid detection**: If distinct authors > threshold, modmail mods (rate-limited)
+7. **Series handling**: For accepted series posts, set flair + sticky reminder + DM author
 
-## How we built it
+**Mod panel:**
+- Polls `enforcement:list` and `stats:get` on mount + refresh
+- Rule preview: synchronous RPC dry-run against current settings
+- AI summary: on-demand analysis via Claude API
+- A/B simulator: replay past events with modified thresholds
 
-- **Devvit Web 0.12.22** -- `PostSubmit` trigger + custom post mod panel + Devvit Redis
-- **React 18 + Vite + Tailwind** -- professional GitHub-inspired dark theme for enterprise moderation workflows
-- **TypeScript strict mode**, **Vitest** for the rule logic
-- **63 unit tests, all passing on every commit**
-- **Anthropic Claude API** -- AI-powered moderation insights (optional feature, user-configured API key)
+---
 
-Architecture flow:
+## Ported Rules (100% Parity)
 
-1. `PostSubmit` trigger fires.
-2. Evaluator runs every enabled rule in order. First violation wins.
-3. If violation: check escalation counter for the author, decide warn vs remove vs remove-and-alert.
-4. Apply Reddit-side action (remove + distinguished sticky comment, or just comment for warn).
-5. Append to per-author rolling-window violation set + per-rule cross-author hit set.
-6. Run raid detection: if distinct authors above floor, modmail mods (rate-limited via marker key).
-7. Persist submission row for dedupe; for accepted series posts, set flair + post reminder + DM author.
+All six rules from `nosleepautobot` are ported with full behavioral parity:
 
-The mod panel polls `enforcement:list` and `stats:get` on mount + refresh nonce changes. Rule preview is a synchronous RPC that runs the same evaluator against the same settings.
+- **Title-tag whitelist** (exact regex behavior, all edge cases: "update3" rejected, "Part 1 of 2" rejected)
+- **NSFW-in-title detection** (token-based, preserves underscore-glued non-match)
+- **Long-paragraph cap** (same paragraph-split regex, `\w+` word counting)
+- **Code-block detection** (4-space/tab, whitespace-only paragraphs ignored)
+- **Per-author rate limit** (Activity model + dedupe-by-post-id semantics)
+- **Series detection** → auto-flair → sticky locked UpdateMeBot reminder → author DM
 
-## Challenges
+**Test parity:** 44 of our 63 unit tests are direct ports of the original Python test cases. All 63 passing.
 
-- **Subtle test-case parity.** The original's regex for title-tag matching has non-obvious edge cases ("update3" without space is invalid, text numbers stop at "nineteen", "Part 1 of 2" is rejected). Ported the original tests verbatim to prove parity.
-- **Devvit's Redis differs from stdlib.** `set()` takes a `Date` for expiration; `zRange(0, -1)` doesn't mean "all" (needs positive bound); no SCAN. We knew these from a sibling project (Sankofa Mod) and worked around them up front.
-- **The "what does Submission Guard do that AutoMod doesn't?" question.** Raised by the original maintainer in our permission request. The answer reshaped the whole port: every feature past the parity baseline is something AutoMod can't structurally do.
+---
+
+## Challenges We Solved
+
+### 1. Subtle Test-Case Parity
+The original's title-tag regex has non-obvious edge cases:
+- "update3" without space is invalid
+- Text numbers stop at "nineteen"  
+- "Part 1 of 2" is rejected
+
+We ported the original tests verbatim to prove parity.
+
+### 2. Devvit Redis Quirks
+- `set()` takes a `Date` for expiration (not seconds)
+- `zRange(0, -1)` doesn't mean "all" (needs positive bound)
+- No SCAN command
+
+We knew these from a sibling project and worked around them up front.
+
+### 3. Redefining the Scope
+The original maintainer's feedback—**"AutoMod has eaten most of this"**—made us re-think the value prop. The answer: every feature past the parity baseline must be something AutoMod **structurally cannot do**.
+
+That shaped the entire port. No fluff. Just the stateful gaps.
+
+---
 
 ## Accomplishments
 
-- 63 unit tests, all passing.
-- Faithful port + meaningful generalization.
-- Honest engagement with the maintainer about why the port is worth doing -- the feedback made the product sharper.
+✅ **63 unit tests, all passing**  
+✅ **Faithful port + meaningful generalization**  
+✅ **Honest engagement with the maintainer** — the feedback made the product sharper  
+✅ **Production-tested** on r/submission_guard_dev  
+✅ **Published** to Reddit App Directory (v2.0.1 in review)  
+✅ **AI-powered insights** — first moderation bot to integrate LLM analysis  
+✅ **A/B testing for moderation policy** — evidence-based rule tuning  
 
-## What's next
+---
 
-- Retroactive series detection via the `ModAction` trigger (if a mod manually applies series flair after the bot accepted the post, retroactively send the reminder DM).
-- Preset configs (r/HFY, r/WritingPrompts) -- install + apply with one click.
-- Weekly mod-activity digest in modmail (port of the original's report service).
+## What's Next
 
-## Built with
+- **Retroactive series detection** via `ModAction` trigger (if a mod manually applies series flair after acceptance, retroactively send the reminder DM)
+- **Preset configs** for r/HFY, r/WritingPrompts — install + apply with one click
+- **Weekly mod-activity digest** in modmail (port of the original's report service)
 
-`devvit-web` `react-18` `vite-5` `tailwindcss-3` `typescript` `vitest` `redis`
+---
+
+## Built With
+
+`devvit-web` `react-18` `vite-5` `tailwindcss-3` `typescript` `vitest` `redis` `anthropic-claude`
+
+---
 
 ## Tool Overview
 
@@ -95,47 +151,79 @@ Submission Guard runs on every PostSubmit event in any subreddit it's installed 
 - Series auto-flair + UpdateMeBot reminder comment + author DM
 
 **Stateful features added on top (the AutoMod-can't-do tier):**
-- Account-age-aware rate limit tiers (new accounts 2x cooldown, tenured 0.5x)
-- Cumulative violation escalation (warn -> remove -> remove-and-modmail)
-- Raid detection (cross-author rule-hit aggregation -> modmail alert)
+- Account-age-aware rate limit tiers (new accounts 2× cooldown, tenured 0.5×)
+- Cumulative violation escalation (warn → remove → remove-and-modmail)
+- Raid detection (cross-author rule-hit aggregation → modmail alert)
 - Rule preview (dry-run any title/body against current settings)
-- One-click reapprove from the enforcement feed
+- Batch reapproval from the enforcement feed
+- AI-powered moderation insights (Claude 3.5 Sonnet)
+- A/B test simulator (replay past data with modified settings)
 - Live stats dashboard
 
 **Mod-only at every layer** (permission gate on every RPC). **State per-sub** in Devvit Redis. Settings drawer for every rule, threshold, and escalation policy.
 
+---
+
 ## Project Impact
 
-**r/nosleep (~18.1M subscribers)** -- The original target. With William's blessing (public GitHub permission), the port replaces the maintained-but-Python AWS deployment with native Devvit hosting. No more "bot is down at 3am" pages, no AWS bill. Rules unchanged from the original.
+### r/nosleep (~18.1M subscribers)
+The original target. With William's blessing ([public GitHub permission](https://github.com/sofaworks/nosleepautobot/issues/190)), the port replaces the maintained-but-Python AWS deployment with native Devvit hosting. No more "bot is down at 3am" pages, no AWS bill. Rules unchanged from the original.
 
-**r/HFY (~377K subscribers)** -- Long-form fiction with similar moderation needs (series-format posts, paragraph length, post rate). Account-age tiers especially relevant since HFY gets new-account spam.
+### r/HFY (~377K subscribers)
+Long-form fiction with similar moderation needs (series-format posts, paragraph length, post rate). Account-age tiers especially relevant since HFY gets new-account spam.
 
-**r/WritingPrompts (~18M subscribers)** -- World's largest writing-prompts sub. The title-tag + rate-limit rules apply directly. Custom regex slot in settings encodes their `[WP]`/`[CW]`/`[EU]` prompt-tag conventions.
+### r/WritingPrompts (~18M subscribers)
+World's largest writing-prompts sub. The title-tag + rate-limit rules apply directly. Custom regex slot in settings encodes their `[WP]`/`[CW]`/`[EU]` prompt-tag conventions.
 
-## Reddit username
+---
 
-- u/Flat_Lawfulness8889
+## Reddit Username
 
-## Original Bot username
+u/Flat_Lawfulness8889
 
-- u/NoSleepAutoBot
+---
+
+## Original Bot Username
+
+u/NoSleepAutoBot
+
+---
 
 ## Port Completion
 
 Every rule and every documented edge case from the original test suite (`autobot/tests/test_bot.py`) is preserved and tested:
-- Title-tag: text-numbers one through nineteen, "Part 1 of 2" rejection, "update3" rejection, vol/volume/pt variants -- all match.
-- NSFW: bracket-stripped, exclamation-stripped, question-stripped variants all match; underscore-glued does NOT match.
-- Long-paragraph: same paragraph-split regex and `\w+` word counting.
-- Code-block: 4-space, tab, 3-spaces+tab; whitespace-only paragraphs ignored.
-- Rate-limit: same Activity model + same dedupe-by-post-id semantics.
-- Series: same detection, flair, sticky-locked reminder, author DM; `[Final]`/`[Finale]` skip the reminder.
 
-The port is installable today and serves the original function for r/nosleep, plus generalizes to any long-form sub. The escalation, raid detection, and account-age tier features are NEW in the port and address the gap that AutoMod can't fill.
+- **Title-tag**: text-numbers one through nineteen, "Part 1 of 2" rejection, "update3" rejection, vol/volume/pt variants — all match
+- **NSFW**: bracket-stripped, exclamation-stripped, question-stripped variants all match; underscore-glued does NOT match
+- **Long-paragraph**: same paragraph-split regex and `\w+` word counting
+- **Code-block**: 4-space, tab, 3-spaces+tab; whitespace-only paragraphs ignored
+- **Rate-limit**: same Activity model + same dedupe-by-post-id semantics
+- **Series**: same detection, flair, sticky-locked reminder, author DM; `[Final]`/`[Finale]` skip the reminder
 
-## Source code
+The port is installable today and serves the original function for r/nosleep, plus generalizes to any long-form sub. The escalation, raid detection, account-age tier, AI insights, and A/B testing features are NEW in the port and address the gap that AutoMod can't fill.
+
+---
+
+## Source Code
 
 https://github.com/rogerkorantenng/submission-guard
 
-## Original permission
+---
 
-Granted publicly by the original maintainer: https://github.com/sofaworks/nosleepautobot/issues/190
+## Original Permission
+
+Granted publicly by the original maintainer:  
+https://github.com/sofaworks/nosleepautobot/issues/190
+
+---
+
+## License
+
+BSD-3-Clause (matching the original)
+
+---
+
+## Terms & Privacy
+
+- **Terms:** https://github.com/rogerkorantenng/submission-guard/blob/master/docs/TERMS.md
+- **Privacy:** https://github.com/rogerkorantenng/submission-guard/blob/master/docs/PRIVACY.md
