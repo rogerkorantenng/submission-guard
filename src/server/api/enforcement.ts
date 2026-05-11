@@ -53,11 +53,11 @@ export async function enforcementListHandler(
 
     // Merge reapproval metadata from separate hash
     const reapprovalKey = keys.reapprovals(me.subreddit);
-    const reapprovals = await context.redis.hGetAll(reapprovalKey).catch(() => ({}));
+    const reapprovals = await context.redis.hGetAll(reapprovalKey).catch(() => ({} as Record<string, string>));
 
     for (const ev of events) {
       const reapprovalJson = reapprovals[ev.postId];
-      if (reapprovalJson) {
+      if (reapprovalJson && typeof reapprovalJson === 'string') {
         try {
           const { reapprovedBy, reapprovedAt } = JSON.parse(reapprovalJson);
           ev.reapproved = true;
