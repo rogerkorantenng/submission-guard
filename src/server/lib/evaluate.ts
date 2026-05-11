@@ -15,6 +15,11 @@ export interface EvaluateInput {
   flairCssClass?: string | null;
   /** Prior activity row for the author, if any. */
   priorActivity: AuthorActivity | null;
+  /**
+   * Author's account age in days. Used by the tier-aware rate-limit logic.
+   * Omit (or pass undefined) to disable tier multipliers (default = 1x).
+   */
+  accountAgeDays?: number;
   settings: GuardSettings;
 }
 
@@ -108,12 +113,18 @@ export function evaluateSubmission(input: EvaluateInput): EvaluateResult {
       newPostId: input.postId,
       newPostTimeMs: input.createdAtMs,
       windowSec: s.rateLimitWindowSec,
+      accountAgeDays: input.accountAgeDays,
+      ageTiers: s.accountAgeRateLimitTiers,
     });
     if (rl.rateLimited) {
+      const tierNote =
+        rl.tierMultiplier !== 1
+          ? ` (account-age tier x${rl.tierMultiplier}: effective window ${rl.effectiveWindowSec}s)`
+          : '';
       return {
         type: 'remove',
         reason: 'rate-limit',
-        detail: `Author posted within the cooldown window (${s.rateLimitWindowSec}s).`,
+        detail: `Author posted within the cooldown window (${rl.effectiveWindowSec}s)${tierNote}.`,
         waitPhrase: englishifyTime(rl.waitSeconds),
         allowReapproval: false,
         isSeries: tagResult.isSeries,

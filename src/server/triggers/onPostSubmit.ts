@@ -1,5 +1,5 @@
 import type { TriggerContext } from '@devvit/public-api';
-import type { AuthorActivity, CachedSubmission, EnforcementEvent } from '@shared/types';
+import type { AuthorActivity, CachedSubmission, EnforcementEvent, RemovalReason } from '@shared/types';
 import { keys, TTL } from '../lib/redis-keys';
 import { evaluateSubmission } from '../lib/evaluate';
 import { getGuardSettings } from '../lib/settings';
@@ -9,6 +9,7 @@ import {
   buildSeriesReminderComment,
 } from '../lib/messages';
 import { isSeriesByFlair } from '../lib/rules/seriesDetect';
+import { decideEscalation, decideRaidAlert } from '../lib/escalation';
 
 interface PostSubmitPayload {
   post?: {
@@ -100,6 +101,110 @@ async function recordEnforcement(
 }
 
 /**
+ * Reads the count of prior violations by `author` in the rolling window.
+ * Trims expired entries opportunistically before counting so the sorted
+ * set stays bounded. The "current" violation is NOT included; the caller
+ * appends it after deciding the action.
+ */
+async function countPriorViolations(
+  ctx: Pick<TriggerContext, 'redis'>,
+  sub: string,
+  author: string,
+  windowSec: number,
+): Promise<number> {
+  const key = keys.violations(sub, author);
+  const now = Date.now();
+  const windowStart = now - windowSec * 1000;
+  // zRemRangeByScore: drop everything older than the window.
+  await ctx.redis.zRemRangeByScore(key, 0, windowStart - 1).catch(() => undefined);
+  // zRange by score to count within-window members.
+  const members = await ctx.redis
+    .zRange(key, windowStart, '+inf', { by: 'score' })
+    .catch(() => [] as Array<{ member: string } | string>);
+  return Array.isArray(members) ? members.length : 0;
+}
+
+/** Append the current violation to the rolling window. */
+async function appendViolation(
+  ctx: Pick<TriggerContext, 'redis'>,
+  sub: string,
+  author: string,
+  reason: RemovalReason,
+  ts: number,
+  windowSec: number,
+): Promise<void> {
+  await ctx.redis
+    .zAdd(keys.violations(sub, author), { score: ts, member: `${ts}-${reason}` })
+    .catch(() => undefined);
+  // Refresh key TTL so unmaintained authors fall off entirely after the window.
+  await ctx.redis.expire(keys.violations(sub, author), windowSec).catch(() => undefined);
+}
+
+/**
+ * Append the (reason, author) pair to the rolling per-rule hit set used by
+ * raid detection, then count distinct authors within the window.
+ */
+async function recordRuleHitAndCount(
+  ctx: Pick<TriggerContext, 'redis'>,
+  sub: string,
+  reason: RemovalReason,
+  author: string,
+  ts: number,
+  windowSec: number,
+): Promise<number> {
+  const key = keys.ruleHits(sub, reason);
+  const windowStart = ts - windowSec * 1000;
+  await ctx.redis.zRemRangeByScore(key, 0, windowStart - 1).catch(() => undefined);
+  // member is the author name; if the same author hits the rule twice in the
+  // window, zAdd just updates the score -- distinct-author count is the
+  // current member count.
+  await ctx.redis.zAdd(key, { score: ts, member: author }).catch(() => undefined);
+  await ctx.redis.expire(key, windowSec).catch(() => undefined);
+  const members = await ctx.redis
+    .zRange(key, windowStart, '+inf', { by: 'score' })
+    .catch(() => [] as Array<{ member: string } | string>);
+  return Array.isArray(members) ? members.length : 0;
+}
+
+/**
+ * Modmail mods about a possible raid. Idempotent within the raid window via
+ * an alert-sent marker key. Best-effort: any failure is logged and swallowed.
+ */
+async function maybeAlertModsAboutRaid(
+  ctx: Pick<TriggerContext, 'redis' | 'reddit'>,
+  sub: string,
+  reason: RemovalReason,
+  distinctAuthors: number,
+  windowSec: number,
+): Promise<void> {
+  const markerKey = keys.raidAlertSent(sub, reason);
+  const already = await ctx.redis.get(markerKey).catch(() => null);
+  if (already) return;
+  try {
+    await ctx.reddit.modMail.createConversation({
+      subredditName: sub,
+      subject: `Submission Guard: possible raid -- ${distinctAuthors} hits on "${reason}" in ${windowSec}s`,
+      body: [
+        `Submission Guard detected an unusual cluster of "${reason}" violations:`,
+        ``,
+        `**${distinctAuthors} distinct authors** hit this rule within the last ${windowSec} seconds.`,
+        ``,
+        `This often signals a coordinated raid, a script attack, or a misconfigured rule. Consider locking new submissions, switching the sub to restricted mode, or reviewing the recent enforcement feed in the Submission Guard mod panel.`,
+        ``,
+        `This alert is rate-limited to once per raid window. If the cluster continues, you will only receive one notification.`,
+      ].join('\n'),
+      isAuthorHidden: false,
+      to: null,
+    });
+    await ctx.redis
+      .set(markerKey, '1', { expiration: new Date(Date.now() + windowSec * 1000) })
+      .catch(() => undefined);
+  } catch (err) {
+    console.error('[onPostSubmit] raid alert modmail failed', err);
+  }
+}
+
+/**
  * Devvit `PostSubmit` handler. Runs every Submission Guard rule against the
  * incoming post and applies the appropriate action.
  *
@@ -133,14 +238,32 @@ export async function onPostSubmit(
   const flairCssClass = post.linkFlair?.cssClass ?? null;
   const prior = await readPriorActivity(ctx, sub, author);
 
+  // Resolve author account age in days. This is one of the unique value-adds
+  // over AutoModerator, which has no access to account_age. If the lookup
+  // fails (deleted account, transient API hiccup), accountAgeDays stays
+  // undefined and the rate-limit tier logic falls back to the 1x multiplier.
+  let accountAgeDays: number | undefined;
+  const authorId = event.author?.id ?? event.post?.authorId;
+  if (authorId) {
+    try {
+      const u = await ctx.reddit.getUserById(authorId);
+      if (u?.createdAt instanceof Date) {
+        accountAgeDays = Math.max(0, Math.floor((Date.now() - u.createdAt.getTime()) / 86_400_000));
+      }
+    } catch {
+      // Defensive: tier multiplier just falls back to 1x.
+    }
+  }
+
   const result = evaluateSubmission({
-    postId: postId,
+    postId,
     authorName: author,
     title,
     body,
     createdAtMs,
     flairCssClass,
     priorActivity: prior,
+    accountAgeDays,
     settings,
   });
 
@@ -158,37 +281,96 @@ export async function onPostSubmit(
   }
 
   if (result.type === 'remove') {
+    // Decide escalation action based on prior violations in the rolling window.
+    let action: 'warn' | 'remove' | 'remove-and-alert' = 'remove';
+    if (settings.enableEscalation) {
+      const priorCount = await countPriorViolations(
+        ctx,
+        sub,
+        author,
+        settings.escalation.windowSec,
+      );
+      action = decideEscalation(priorCount, {
+        warnThreshold: settings.escalation.warnThreshold,
+        removeThreshold: settings.escalation.removeThreshold,
+      });
+    }
+
     const live = await loadLivePost();
     if (live) {
-      try {
-        await live.remove(false);
-      } catch (err) {
-        console.error('[onPostSubmit] remove failed', err);
+      // Only remove on remove/remove-and-alert; warn leaves the post up.
+      if (action !== 'warn') {
+        try {
+          await live.remove(false);
+        } catch (err) {
+          console.error('[onPostSubmit] remove failed', err);
+        }
       }
       try {
-        const body = buildRemovalComment({
-          authorName: author,
-          subreddit: sub,
-          postTitle: title,
-          permalink: post.permalink ?? '',
-          reason: result.reason,
-          detail: result.detail,
-          waitPhrase: result.waitPhrase,
-          allowReapproval: result.allowReapproval,
-        });
+        const warnPrefix =
+          action === 'warn'
+            ? `**This is a warning, not a removal yet.** Your post stays up. The next violation in this window will result in a removal.\n\n`
+            : action === 'remove-and-alert'
+              ? `**Repeated violations.** The mod team has been notified.\n\n`
+              : '';
+        const body =
+          warnPrefix +
+          buildRemovalComment({
+            authorName: author,
+            subreddit: sub,
+            postTitle: title,
+            permalink: post.permalink ?? '',
+            reason: result.reason,
+            detail: result.detail,
+            waitPhrase: result.waitPhrase,
+            allowReapproval: result.allowReapproval,
+          });
         const reply = await live.addComment({ text: body });
         await reply.distinguish(true);
       } catch (err) {
         console.error('[onPostSubmit] reply failed', err);
       }
     }
+
+    // Append this violation to the rolling per-author counter, then run raid
+    // detection if enabled.
+    if (settings.enableEscalation) {
+      await appendViolation(
+        ctx,
+        sub,
+        author,
+        result.reason,
+        createdAtMs,
+        settings.escalation.windowSec,
+      );
+    }
+    if (settings.enableRaidDetection) {
+      const distinct = await recordRuleHitAndCount(
+        ctx,
+        sub,
+        result.reason,
+        author,
+        createdAtMs,
+        settings.raid.windowSec,
+      );
+      if (decideRaidAlert(distinct, { minDistinctAuthors: settings.raid.minDistinctAuthors }, result.reason)) {
+        await maybeAlertModsAboutRaid(
+          ctx,
+          sub,
+          result.reason,
+          distinct,
+          settings.raid.windowSec,
+        );
+      }
+    }
+
     await recordEnforcement(ctx, sub, {
       id: `${createdAtMs}-${postId}`,
       postId: postId,
       authorName: author,
       title,
       reason: result.reason,
-      detail: result.detail,
+      detail: action === 'warn' ? `${result.detail} (1st-violation warning; post not removed)` : result.detail,
       ts: createdAtMs,
       permalink: post.permalink ?? '',
     });
@@ -202,7 +384,9 @@ export async function onPostSubmit(
       series: result.isSeries,
       sentSeriesPm: false,
     });
-    console.log(`[onPostSubmit] sub=${sub} post=${postId} REMOVED reason=${result.reason}`);
+    console.log(
+      `[onPostSubmit] sub=${sub} post=${postId} ${action.toUpperCase()} reason=${result.reason}`,
+    );
     return;
   }
 

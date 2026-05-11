@@ -18,8 +18,27 @@ export const DEFAULTS: GuardSettings = {
   customTitleTagPatterns: [],
   maxWordsPerParagraph: 350,
   rateLimitWindowSec: 86_400,
+  // Account-age-aware rate limit tiers. Brand-new accounts get 2x cooldown,
+  // long-tenured accounts get 0.5x. The trigger handler picks the FIRST
+  // matching tier (lowest `maxAgeDays` >= the author's age in days).
+  accountAgeRateLimitTiers: [
+    { maxAgeDays: 7, windowMultiplier: 2 },
+    { maxAgeDays: 30, windowMultiplier: 1 },
+    { maxAgeDays: Number.MAX_SAFE_INTEGER, windowMultiplier: 0.5 },
+  ],
   seriesFlairCssClass: 'flair-series',
   enableSeriesReminderComment: true,
+  enableEscalation: true,
+  escalation: {
+    warnThreshold: 1, // 1st violation: warn comment, no removal
+    removeThreshold: 2, // 2nd violation: standard remove
+    windowSec: 7 * 86_400, // rolling 7-day window
+  },
+  enableRaidDetection: true,
+  raid: {
+    minDistinctAuthors: 5, // 5 authors hitting same rule in 5min = raid
+    windowSec: 300,
+  },
 };
 
 /**

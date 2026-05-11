@@ -21,6 +21,28 @@ export interface RateLimitDecision {
   rateLimited: boolean;
   /** Seconds until the author can post again. 0 if not rate-limited. */
   waitSeconds: number;
+  /** Effective window used (after applying tier multiplier). For modmail copy. */
+  effectiveWindowSec: number;
+  /** The multiplier that was picked (1.0 if no tiers configured). */
+  tierMultiplier: number;
+}
+
+/**
+ * Pick the window multiplier whose threshold the author's account age falls
+ * under. The first row whose `maxAgeDays >= accountAgeDays` wins (rows are
+ * expected to be sorted ascending by maxAgeDays).
+ */
+export function pickAgeTier(
+  tiers: ReadonlyArray<{ maxAgeDays: number; windowMultiplier: number }> | undefined,
+  accountAgeDays: number | undefined,
+): number {
+  if (!tiers || tiers.length === 0) return 1;
+  if (accountAgeDays == null || !Number.isFinite(accountAgeDays)) return 1;
+  const sorted = [...tiers].sort((a, b) => a.maxAgeDays - b.maxAgeDays);
+  for (const tier of sorted) {
+    if (accountAgeDays <= tier.maxAgeDays) return tier.windowMultiplier;
+  }
+  return sorted[sorted.length - 1]!.windowMultiplier;
 }
 
 export function evaluateRateLimit(args: {
@@ -28,13 +50,33 @@ export function evaluateRateLimit(args: {
   newPostId: string;
   newPostTimeMs: number;
   windowSec: number;
+  /** Account age in days. When omitted, tier logic is bypassed. */
+  accountAgeDays?: number;
+  /** Account-age tiers (sorted ascending by maxAgeDays). */
+  ageTiers?: ReadonlyArray<{ maxAgeDays: number; windowMultiplier: number }>;
 }): RateLimitDecision {
-  const { prior, newPostId, newPostTimeMs, windowSec } = args;
-  if (!prior) return { rateLimited: false, waitSeconds: 0 };
-  if (prior.lastPostId === newPostId) return { rateLimited: false, waitSeconds: 0 };
+  const { prior, newPostId, newPostTimeMs, windowSec, accountAgeDays, ageTiers } = args;
+  const multiplier = pickAgeTier(ageTiers, accountAgeDays);
+  const effectiveWindowSec = Math.max(0, Math.floor(windowSec * multiplier));
+  if (effectiveWindowSec === 0) {
+    return { rateLimited: false, waitSeconds: 0, effectiveWindowSec: 0, tierMultiplier: multiplier };
+  }
+  if (!prior) {
+    return { rateLimited: false, waitSeconds: 0, effectiveWindowSec, tierMultiplier: multiplier };
+  }
+  if (prior.lastPostId === newPostId) {
+    return { rateLimited: false, waitSeconds: 0, effectiveWindowSec, tierMultiplier: multiplier };
+  }
   const elapsedSec = Math.floor((newPostTimeMs - prior.lastPostTimeMs) / 1000);
-  if (elapsedSec >= windowSec) return { rateLimited: false, waitSeconds: 0 };
-  return { rateLimited: true, waitSeconds: windowSec - elapsedSec };
+  if (elapsedSec >= effectiveWindowSec) {
+    return { rateLimited: false, waitSeconds: 0, effectiveWindowSec, tierMultiplier: multiplier };
+  }
+  return {
+    rateLimited: true,
+    waitSeconds: effectiveWindowSec - elapsedSec,
+    effectiveWindowSec,
+    tierMultiplier: multiplier,
+  };
 }
 
 /**

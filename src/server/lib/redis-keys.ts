@@ -20,6 +20,28 @@ export const keys = {
   enforcementFeed: (sub: string) => `enforcement_feed:${ensure('sub', sub)}`,
   /** Per-sub `GuardSettings` JSON. */
   settings: (sub: string) => `settings:${ensure('sub', sub)}`,
+  /**
+   * Sorted set of violation timestamps for a single author in a sub.
+   * Member = ts, score = ts -- we want to range by time. Trimmed on each
+   * write to keep only the rolling window.
+   */
+  violations: (sub: string, author: string) =>
+    `violations:${ensure('sub', sub)}:${ensure('author', author).toLowerCase()}`,
+  /**
+   * Sorted set of recent same-rule hits across all authors. Used by raid
+   * detection to count distinct authors in a rolling window. Member is the
+   * author name, score is the violation ts. zRangeByScore + uniq gives us
+   * the distinct-author count cheaply.
+   */
+  ruleHits: (sub: string, reason: string) =>
+    `rule_hits:${ensure('sub', sub)}:${ensure('reason', reason)}`,
+  /**
+   * Idempotency guard for raid alerts. When we modmail mods about a raid,
+   * write a marker key so we don't alert again for the same window. Key
+   * carries a TTL equal to the raid window.
+   */
+  raidAlertSent: (sub: string, reason: string) =>
+    `raid_alert_sent:${ensure('sub', sub)}:${ensure('reason', reason)}`,
 };
 
 export const TTL = {

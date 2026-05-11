@@ -17,7 +17,8 @@ export function isRemovalReason(v: unknown): v is RemovalReason {
 
 /**
  * Per-sub Submission Guard settings. All knobs the original `autobot.env.sample`
- * exposed, plus a few new ones the port exposes per-install via Devvit settings.
+ * exposed, plus several new ones the port exposes per-install via Devvit
+ * settings -- specifically the stateful pieces AutoModerator cannot do.
  */
 export interface GuardSettings {
   enableTitleTags: boolean;
@@ -30,12 +31,50 @@ export interface GuardSettings {
   customTitleTagPatterns: string[];
   /** Word-count cap per paragraph. Default 350 (matches r/nosleep). */
   maxWordsPerParagraph: number;
-  /** Rate limit window in seconds. Default 86400 (24h). */
+  /** Default rate limit window in seconds. Default 86400 (24h). */
   rateLimitWindowSec: number;
+  /**
+   * Account-age-aware rate limits. AutoMod cannot read author account age, so
+   * this is one of the headline differentiators of the port. Each tier maps
+   * an account-age threshold (days) to a multiplier on `rateLimitWindowSec`.
+   * Sorted descending by `maxAgeDays`: the first row whose threshold the
+   * author's account age is BELOW or EQUAL to wins.
+   *
+   * Example default policy:
+   *   accounts <= 7 days old  -> 2x the base window (48h cooldown)
+   *   accounts <= 30 days old -> 1x (same 24h)
+   *   else                    -> 0.5x (12h, "trusted poster")
+   */
+  accountAgeRateLimitTiers: Array<{ maxAgeDays: number; windowMultiplier: number }>;
   /** CSS class string of the Series flair template in the sub. */
   seriesFlairCssClass: string;
   /** If true, also send the UpdateMeBot reminder comment + DM author. */
   enableSeriesReminderComment: boolean;
+  /**
+   * Cumulative-violation escalation. AutoMod cannot count violations across
+   * time; we keep a per-author counter in Redis. When an author hits a rule
+   * violation, the trigger uses these thresholds to decide what to do:
+   *  - count <= warnThreshold: log + warn comment, no removal
+   *  - count <= removeThreshold: standard remove + sticky comment
+   *  - count >  removeThreshold: remove + modmail mods
+   * `windowSec` is the rolling-window over which violations are counted.
+   */
+  enableEscalation: boolean;
+  escalation: {
+    warnThreshold: number;
+    removeThreshold: number;
+    windowSec: number;
+  };
+  /**
+   * Raid detection. If N distinct authors hit the same rule within `windowSec`
+   * seconds, modmail the mod team with a "possible raid" alert. AutoMod
+   * cannot do this aggregation.
+   */
+  enableRaidDetection: boolean;
+  raid: {
+    minDistinctAuthors: number;
+    windowSec: number;
+  };
 }
 
 /**
