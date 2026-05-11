@@ -17,7 +17,18 @@ import { handleModAction } from './src/server/triggers/onModAction';
 Devvit.configure({
   redditAPI: true,
   redis: true,
+  http: true,
 });
+
+Devvit.addSettings([
+  {
+    type: 'string',
+    name: 'anthropicApiKey',
+    label: 'Anthropic API Key',
+    helpText: 'API key for Claude AI summaries (get from console.anthropic.com)',
+    scope: 'installation',
+  },
+]);
 
 Devvit.addTrigger({
   event: 'PostSubmit',

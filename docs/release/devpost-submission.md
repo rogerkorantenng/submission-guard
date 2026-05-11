@@ -22,7 +22,9 @@ We took that feedback and built up. Submission Guard ports every rule from the o
 | **Cumulative violation escalation** | AutoMod is stateless. We keep a per-author rolling-window violation counter in Redis. 1st violation = warn (post stays up), 2nd = remove, 3rd = remove + modmail. |
 | **Raid detection** | AutoMod fires per-event, in isolation. We aggregate across authors: N distinct authors hitting the same rule within M seconds = modmail alert. |
 | **Rule preview** | AutoMod requires editing the wiki and submitting test posts to validate rule changes. We dry-run the evaluator against current settings -- paste a hypothetical title + body, see what would fire. |
-| **One-click reapproval** | AutoMod has no UI to undo its own removals; mods navigate to the post. We surface every removal in the mod panel with a Reapprove button. |
+| **Batch reapproval** | AutoMod has no UI to undo its own removals; mods navigate to the post. We surface every removal with checkboxes for bulk reapproval. |
+| **AI-powered insights** | AutoMod has no external API access. We integrate Claude 3.5 Sonnet to analyze enforcement events and provide 2-3 sentence context summaries for better mod decisions. |
+| **A/B test simulator** | AutoMod provides no what-if analysis. We replay past enforcement data against modified settings to show what would change before deploying rule tweaks. |
 | **Live stats** | AutoMod's modlog is raw events. We aggregate (24h/7d/30d, by rule, top authors). |
 
 ## Ported rules (parity with the original)
@@ -41,9 +43,10 @@ All six rules from `nosleepautobot` are ported with full behavioral parity, veri
 ## How we built it
 
 - **Devvit Web 0.12.22** -- `PostSubmit` trigger + custom post mod panel + Devvit Redis
-- **React 18 + Vite + Tailwind** -- paper-and-ink visual identity that nods to the typewritten-manuscript aesthetic of long-form fiction subs
+- **React 18 + Vite + Tailwind** -- professional GitHub-inspired dark theme for enterprise moderation workflows
 - **TypeScript strict mode**, **Vitest** for the rule logic
 - **63 unit tests, all passing on every commit**
+- **Anthropic Claude API** -- AI-powered moderation insights (optional feature, user-configured API key)
 
 Architecture flow:
 
