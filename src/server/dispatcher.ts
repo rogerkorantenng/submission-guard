@@ -7,6 +7,8 @@ import { statsGetHandler } from './api/stats';
 import { previewHandler } from './api/preview';
 import { reapproveHandler } from './api/reapprove';
 import { presetsListHandler, presetApplyHandler } from './api/presets';
+import { aiSummaryHandler } from './api/ai-summary';
+import { simulatorHandler } from './api/simulator';
 
 /**
  * Pure dispatch function: given an RpcRequest envelope and a Devvit
@@ -33,6 +35,10 @@ export async function dispatch(context: Context, msg: RpcRequest): Promise<unkno
       return presetsListHandler(context);
     case 'presets:apply':
       return presetApplyHandler(context, msg.payload);
+    case 'ai:summary':
+      return aiSummaryHandler(context, msg.payload);
+    case 'simulator:run':
+      return simulatorHandler(context, msg.payload);
     default:
       return { error: `unknown type: ${msg.type}` };
   }

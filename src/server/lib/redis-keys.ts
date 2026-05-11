@@ -42,6 +42,11 @@ export const keys = {
    */
   raidAlertSent: (sub: string, reason: string) =>
     `raid_alert_sent:${ensure('sub', sub)}:${ensure('reason', reason)}`,
+  /**
+   * Hash storing reapproval metadata. Field = postId, value = JSON with
+   * {reapprovedBy, reapprovedAt}. Separate from enforcement feed for simpler updates.
+   */
+  reapprovals: (sub: string) => `reapprovals:${ensure('sub', sub)}`,
 };
 
 export const TTL = {

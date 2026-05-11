@@ -50,6 +50,25 @@ export async function enforcementListHandler(
   const limit = typeof body.limit === 'number' ? body.limit : DEFAULT_LIMIT;
   try {
     const events = await readEnforcementFeed(context, me.subreddit, limit);
+
+    // Merge reapproval metadata from separate hash
+    const reapprovalKey = keys.reapprovals(me.subreddit);
+    const reapprovals = await context.redis.hGetAll(reapprovalKey).catch(() => ({}));
+
+    for (const ev of events) {
+      const reapprovalJson = reapprovals[ev.postId];
+      if (reapprovalJson) {
+        try {
+          const { reapprovedBy, reapprovedAt } = JSON.parse(reapprovalJson);
+          ev.reapproved = true;
+          ev.reapprovedBy = reapprovedBy;
+          ev.reapprovedAt = reapprovedAt;
+        } catch {
+          // ignore parse errors
+        }
+      }
+    }
+
     return { events };
   } catch (err) {
     return { error: String(err) };

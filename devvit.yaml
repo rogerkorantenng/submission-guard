@@ -2,7 +2,13 @@ name: submission-guard
 version: 1.0.0
 api: '0.11'
 developers:
-  - Flat_Lawfulness8889
+  - Hot-Smell6959
 webRoot: ./webroot
 redis:
   enabled: true
+settings:
+  - type: string
+    name: anthropicApiKey
+    label: Anthropic API Key
+    helpText: API key for Claude AI summaries (get from console.anthropic.com)
+    isSecret: true

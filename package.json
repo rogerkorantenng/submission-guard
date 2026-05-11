@@ -17,6 +17,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.2",
     "@devvit/public-api": "0.12.22",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
@@ -33,5 +34,5 @@
     "vite": "^5.4.21",
     "vitest": "^2.1.9"
   },
-  "license": "Apache-2.0"
+  "license": "BSD-3-Clause"
 }

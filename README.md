@@ -9,7 +9,9 @@ Stateful submission moderation for any subreddit. Devvit Web port of [`nosleepau
 - **Account-age-aware rate limits.** Brand-new accounts (default <7 days) get 2x the configured cooldown; tenured accounts (>30 days) get 0.5x. AutoMod has no access to `account_age`.
 - **Cumulative escalation.** Per-author violation counter in a rolling window. 1st violation = warn only (post stays up). 2nd = standard removal. 3rd+ = removal + modmail to the mod team. AutoMod is stateless.
 - **Raid detection.** N distinct authors trip the same rule in M seconds -> modmail alert to mods. Idempotent so they don't get spammed.
-- **One-click reapproval** from the mod panel's enforcement feed.
+- **Batch reapproval** — select multiple removals and reapprove them all with one click.
+- **AI-powered moderation insights** — Claude 3.5 Sonnet analyzes each removal event and provides 2-3 sentence context for better mod decisions.
+- **A/B test simulator** — test rule changes against past enforcement data before deploying. See what would have changed with your new thresholds.
 - **Rule preview** — paste a hypothetical title + body, see what would fire against your current settings. AutoMod requires wiki edits and real test posts.
 - **Live stats dashboard** — 24h/7d/30d windows, by-rule histogram, top 5 authors.
 
@@ -32,8 +34,12 @@ All rules are individually toggleable per-sub.
 2. **Mod Tools -> Submission Guard - Open mod panel** creates one persistent post in the sub.
 3. Open the post (mods only — non-mods see a splash).
 4. Configure rules + thresholds via the **Settings** drawer.
-5. Use **Preview rules** to dry-run a hypothetical post against your current settings before going live.
-6. Watch enforcement happen in the live feed; **Reapprove** any false-positive with one click.
+5. **(Optional) Add Anthropic API key** in app settings for AI-powered moderation insights.
+6. Use **A/B Test** to simulate rule changes against past data before deploying.
+7. Use **Preview rules** to dry-run a hypothetical post against your current settings.
+8. Watch enforcement happen in the live feed:
+   - Click **AI Summary** to get Claude's analysis of any removal
+   - Select multiple items and **Reapprove** false-positives in bulk
 
 ## Local development
 

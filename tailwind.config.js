@@ -1,6 +1,5 @@
 /**
- * Submission Guard — visual identity inspired by old typewritten manuscripts
- * and dim editing studios. Cream paper, ink-dark text, amber editorial accents.
+ * Submission Guard — Professional dark theme for enterprise moderation tools.
  *
  * @type {import('tailwindcss').Config}
  */
@@ -9,39 +8,33 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        paper: {
-          50: '#fbf8f1',
-          100: '#f3ecdb',
-          200: '#e3d6b1',
-          300: '#cbb47a',
+        dark: {
+          bg: '#0d1117',
+          card: '#161b22',
+          border: '#30363d',
+          hover: '#1c2128',
         },
-        ink: {
-          400: '#5a4f44',
-          600: '#332a23',
-          700: '#221b16',
-          800: '#13100c',
+        text: {
+          primary: '#e6edf3',
+          secondary: '#8b949e',
+          muted: '#6e7681',
         },
-        amber: {
-          400: '#d8a233',
-          500: '#b78019',
-          600: '#8a5d10',
-        },
-        crimson: {
-          400: '#bf4c3a',
-          500: '#9d3424',
-        },
-        sage: {
-          500: '#5d8159',
-          600: '#48653f',
+        accent: {
+          orange: '#f0883e',
+          red: '#da3633',
+          yellow: '#d29922',
+          purple: '#8957e5',
+          blue: '#2f81f7',
+          green: '#3fb950',
         },
       },
       fontFamily: {
-        display: ['"Crimson Pro"', 'Georgia', 'serif'],
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Helvetica', 'Arial', 'sans-serif'],
+        mono: ['"SF Mono"', 'Monaco', 'Consolas', 'monospace'],
       },
       boxShadow: {
-        page: '0 1px 2px rgba(34,27,22,0.06), 0 8px 20px rgba(34,27,22,0.06)',
+        card: '0 1px 3px rgba(0,0,0,0.5)',
+        hover: '0 2px 6px rgba(0,0,0,0.6)',
       },
     },
   },

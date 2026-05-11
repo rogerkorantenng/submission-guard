@@ -90,6 +90,9 @@ export interface EnforcementEvent {
   detail: string; // human-readable explainer (e.g. "352 words in paragraph 3")
   ts: number;
   permalink: string;
+  reapproved?: boolean; // If true, a mod manually reapproved this removal
+  reapprovedBy?: string; // Mod username who reapproved
+  reapprovedAt?: number; // Unix timestamp of reapproval
 }
 
 /**
