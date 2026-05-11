@@ -6,6 +6,11 @@ developers:
 webRoot: ./webroot
 redis:
   enabled: true
+permissions:
+  http:
+    enable: true
+    domains:
+      - api.anthropic.com
 settings:
   - type: string
     name: anthropicApiKey
